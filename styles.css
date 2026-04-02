@@ -248,9 +248,13 @@
 /* ── Config section ── */
 #tt-config {
   display: none;
-  padding: 6px 0 2px;
+  padding: 6px 10px 2px;
   flex-direction: column;
   gap: 4px;
+  max-height: 250px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a4260 transparent;
 }
 #tt-config.tt-open { display: flex; }
 
