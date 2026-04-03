@@ -473,7 +473,8 @@
           dir: direction,
           streak: Math.max(upStreak, downStreak),
           mean: speedMean,
-          std: speedStd
+          std: speedStd,
+          sequence: tickDirections.join('')
         }
       };
       recordSessionTrade(tickSnapshot);
@@ -904,7 +905,8 @@
           dir: t0.direction,
           streak: Math.max(t0.upStreak, t0.downStreak),
           mean: speedMean,
-          std: speedStd
+          std: speedStd,
+          sequence: tickDirections.join('')
         }
       };
         signals.push(sig); if (signals.length > 50) signals.shift(); recordSessionTrade(sig); updateSignalsUI();
@@ -956,20 +958,20 @@
   function recordSessionTrade(sig) { sessionTradesAll.push(sig); if (sessionTradesAll.length > SESSION_HISTORY_CAP) sessionTradesAll.shift(); }
   function exportCSV() {
     if (!sessionTradesAll.length) return;
-    const head = ['Type', 'Strategy', 'Price', 'Tick Time', 'Signal Time', 'Confirm Time', 'Result', 'Digit', 'Desc', 'RSI', 'ADX', 'BBW', 'Intensity', 'Epsilon', 'Accel', 'SLow', 'SHigh', 'Trend', 'Dir', 'Streak', 'Mean', 'Std', 'Conf RSI', 'Conf ADX', 'Conf BBW', 'Conf Int', 'Conf Eps', 'Conf Accel', 'Conf SLow', 'Conf SHigh'];
+    const head = ['Type', 'Strategy', 'Price', 'Tick Time', 'Signal Time', 'Confirm Time', 'Result', 'Digit', 'Desc', 'Sequence', 'RSI', 'ADX', 'BBW', 'Intensity', 'Epsilon', 'Accel', 'SLow', 'SHigh', 'Trend', 'Dir', 'Streak', 'Mean', 'Std', 'Conf RSI', 'Conf ADX', 'Conf BBW', 'Conf Int', 'Conf Eps', 'Conf Accel', 'Conf SLow', 'Conf SHigh'];
     const rows = [head].concat(sessionTradesAll.map(s => {
       const m = s.metrics || {}, cm = s.confirmMetrics || {};
-      return [s.type, s.strategy, s.price.toFixed(2), s.time, s.signalTime || '', s.confirmTime || '', s.result, s.triggerDigit ?? '', s.triggerDesc ?? '', m.rsi??'', m.adx??'', m.bbw??'', m.intensity??'', m.epsilon??'', m.accel??'', m.sLow??'', m.sHigh??'', m.trend??'', m.dir??'', m.streak??'', m.mean??'', m.std??'', cm.rsi??'', cm.adx??'', cm.bbw??'', cm.intensity??'', cm.epsilon??'', cm.accel??'', cm.sLow??'', cm.sHigh??''];
+      return [s.type, s.strategy, s.price.toFixed(2), s.time, s.signalTime || '', s.confirmTime || '', s.result, s.triggerDigit ?? '', s.triggerDesc ?? '', m.sequence??'', m.rsi??'', m.adx??'', m.bbw??'', m.intensity??'', m.epsilon??'', m.accel??'', m.sLow??'', m.sHigh??'', m.trend??'', m.dir??'', m.streak??'', m.mean??'', m.std??'', cm.rsi??'', cm.adx??'', cm.bbw??'', cm.intensity??'', cm.epsilon??'', cm.accel??'', cm.sLow??'', cm.sHigh??''];
     }));
     const csv = rows.map(r => r.join(',')).join('\n'); const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '3tick-signals.csv'; a.click();
   }
   function exportRealCSV() {
     if (!realTrades.length) return;
-    const head = ['Signal Time', 'Confirm Time', 'Side', 'Result', 'PnL', 'Digit', 'Desc', 'Sig RSI', 'Sig ADX', 'Sig BBW', 'Sig Int', 'Sig Eps', 'Sig Accel', 'Sig SLow', 'Sig SHigh', 'Conf RSI', 'Conf ADX', 'Conf BBW', 'Conf Int', 'Conf Eps', 'Conf Accel', 'Conf SLow', 'Conf SHigh'];
+    const head = ['Signal Time', 'Confirm Time', 'Side', 'Result', 'PnL', 'Digit', 'Desc', 'Sequence', 'Sig RSI', 'Sig ADX', 'Sig BBW', 'Sig Int', 'Sig Eps', 'Sig Accel', 'Sig SLow', 'Sig SHigh', 'Conf RSI', 'Conf ADX', 'Conf BBW', 'Conf Int', 'Conf Eps', 'Conf Accel', 'Conf SLow', 'Conf SHigh'];
     const rows = [head].concat(realTrades.map(t => {
       const s = t.signalRef || {}, m = s.metrics || {}, cm = t.confirmMetrics || {};
-      return [t.time, t.confirmTime || '', t.side, t.result, t.pnl || '', s.triggerDigit ?? '', s.triggerDesc ?? '', m.rsi??'', m.adx??'', m.bbw??'', m.intensity??'', m.epsilon??'', m.accel??'', m.sLow??'', m.sHigh??'', cm.rsi??'', cm.adx??'', cm.bbw??'', cm.intensity??'', cm.epsilon??'', cm.accel??'', cm.sLow??'', cm.sHigh??''];
+      return [t.time, t.confirmTime || '', t.side, t.result, t.pnl || '', s.triggerDigit ?? '', s.triggerDesc ?? '', m.sequence??'', m.rsi??'', m.adx??'', m.bbw??'', m.intensity??'', m.epsilon??'', m.accel??'', m.sLow??'', m.sHigh??'', cm.rsi??'', cm.adx??'', cm.bbw??'', cm.intensity??'', cm.epsilon??'', cm.accel??'', cm.sLow??'', cm.sHigh??''];
     }));
     const csv = rows.map(r => r.join(',')).join('\n'); const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = '3tick-real.csv'; a.click();
