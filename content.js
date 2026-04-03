@@ -93,7 +93,7 @@
         <div class="tt-row"><span class="tt-label">ADX / BB_W</span><span class="tt-val" id="tt-adx-stats">0 / 0.00</span></div>
         <div class="tt-row"><span class="tt-label">RSI / Trend</span><span class="tt-val" id="tt-rsi-stats">0 / 0.00</span></div>
         <div class="tt-row"><span class="tt-label">Int/Eps/Accel</span><span class="tt-val" id="tt-unleashed-stats">0 / 0 / 0.00000</span></div>
-        <div class="tt-row"><span class="tt-label">Live Score</span><span class="tt-val" id="tt-live-score">B: 0 / S: 0</span></div>
+        <div class="tt-row"><span class="tt-label" id="tt-score-label">Live Score</span><span class="tt-val" id="tt-live-score">B: 0 / S: 0</span></div>
         <div class="tt-row"><span class="tt-label">Session W/L</span><span class="tt-val"><span id="tt-wins">0</span> / <span id="tt-losses">0</span></span></div>
         <div id="tt-signals-list"></div>
         <div class="tt-config-section-label">Real Execution</div>
@@ -298,32 +298,47 @@
     if (lastUI.unleashed !== unleashedVal) {
       const el = document.getElementById('tt-unleashed-stats');
       if (el) {
-        el.textContent = unleashedVal;
-        let ok = true;
-        if (cfg.strategyMode === 'unleashed') {
-          const isUp = t0.direction === 1, isDown = t0.direction === -1;
-          const currentStreak = Math.max(t0.upStreak, t0.downStreak);
-          if (isUp) {
-            if (cfg.minIntensity !== undefined && currentIntensity < cfg.minIntensity) ok = false;
-            if (cfg.maxIntensity !== undefined && currentIntensity > cfg.maxIntensity) ok = false;
-            if (cfg.minStreak !== undefined && currentStreak < cfg.minStreak) ok = false;
-            if (cfg.maxStreak !== undefined && currentStreak > cfg.maxStreak) ok = false;
-            if (cfg.epsBuyMin !== undefined && currentEpsilon < cfg.epsBuyMin) ok = false;
-            if (cfg.epsBuyMax !== undefined && currentEpsilon > cfg.epsBuyMax) ok = false;
-            if (cfg.accelBuyMin !== undefined && currentAccel < cfg.accelBuyMin) ok = false;
-            if (cfg.accelBuyMax !== undefined && currentAccel > cfg.accelBuyMax) ok = false;
-          } else if (isDown) {
-            if (cfg.minIntensity !== undefined && currentIntensity < cfg.minIntensity) ok = false;
-            if (cfg.maxIntensity !== undefined && currentIntensity > cfg.maxIntensity) ok = false;
-            if (cfg.minStreak !== undefined && currentStreak < cfg.minStreak) ok = false;
-            if (cfg.maxStreak !== undefined && currentStreak > cfg.maxStreak) ok = false;
-            if (cfg.epsSellMin !== undefined && currentEpsilon < cfg.epsSellMin) ok = false;
-            if (cfg.epsSellMax !== undefined && currentEpsilon > cfg.epsSellMax) ok = false;
-            if (cfg.accelSellMin !== undefined && currentAccel < cfg.accelSellMin) ok = false;
-            if (cfg.accelSellMax !== undefined && currentAccel > cfg.accelSellMax) ok = false;
+        if (cfg.strategyMode === 'seqMaster' && parsedSeqMasterConfig) {
+          let magnetInZone = false;
+          if (parsedSeqMasterConfig.magnets && Array.isArray(parsedSeqMasterConfig.magnets)) {
+            const dz = parsedSeqMasterConfig.deadzone || 0;
+            for (let i = 0; i < parsedSeqMasterConfig.magnets.length; i++) {
+              if (Math.abs(t0.price - parsedSeqMasterConfig.magnets[i]) <= dz) {
+                magnetInZone = true;
+                break;
+              }
+            }
+          }
+          el.textContent = magnetInZone ? "MAGNET ACTIVE (GATED)" : unleashedVal;
+          el.style.color = magnetInZone ? "#e04040" : "#3ecf60";
+        } else {
+          el.textContent = unleashedVal;
+          let ok = true;
+          if (cfg.strategyMode === 'unleashed') {
+            const isUp = t0.direction === 1, isDown = t0.direction === -1;
+            const currentStreak = Math.max(t0.upStreak, t0.downStreak);
+            if (isUp) {
+              if (cfg.minIntensity !== undefined && currentIntensity < cfg.minIntensity) ok = false;
+              if (cfg.maxIntensity !== undefined && currentIntensity > cfg.maxIntensity) ok = false;
+              if (cfg.minStreak !== undefined && currentStreak < cfg.minStreak) ok = false;
+              if (cfg.maxStreak !== undefined && currentStreak > cfg.maxStreak) ok = false;
+              if (cfg.epsBuyMin !== undefined && currentEpsilon < cfg.epsBuyMin) ok = false;
+              if (cfg.epsBuyMax !== undefined && currentEpsilon > cfg.epsBuyMax) ok = false;
+              if (cfg.accelBuyMin !== undefined && currentAccel < cfg.accelBuyMin) ok = false;
+              if (cfg.accelBuyMax !== undefined && currentAccel > cfg.accelBuyMax) ok = false;
+            } else if (isDown) {
+              if (cfg.minIntensity !== undefined && currentIntensity < cfg.minIntensity) ok = false;
+              if (cfg.maxIntensity !== undefined && currentIntensity > cfg.maxIntensity) ok = false;
+              if (cfg.minStreak !== undefined && currentStreak < cfg.minStreak) ok = false;
+              if (cfg.maxStreak !== undefined && currentStreak > cfg.maxStreak) ok = false;
+              if (cfg.epsSellMin !== undefined && currentEpsilon < cfg.epsSellMin) ok = false;
+              if (cfg.epsSellMax !== undefined && currentEpsilon > cfg.epsSellMax) ok = false;
+              if (cfg.accelSellMin !== undefined && currentAccel < cfg.accelSellMin) ok = false;
+              if (cfg.accelSellMax !== undefined && currentAccel > cfg.accelSellMax) ok = false;
+            } else ok = false;
           } else ok = false;
+          el.style.color = ok ? '#3ecf60' : '#7a8499';
         }
-        el.style.color = ok ? '#3ecf60' : '#7a8499';
       }
       lastUI.unleashed = unleashedVal;
     }
@@ -338,13 +353,24 @@
       sHigh = Math.max(p70, speedMean + speedStd); sLow = Math.min(p30, Math.max(0, speedMean - speedStd));
     }
 
-    if (cfg.strategyMode === 'unleashed' || tickSeq % 5 === 0) {
+    if (cfg.strategyMode === 'unleashed' || cfg.strategyMode === 'seqMaster' || tickSeq % 5 === 0) {
       updateStatsUI();
+      const elLabel = document.getElementById('tt-score-label');
       if (cfg.strategyMode === 'unleashed') {
+        if (elLabel && elLabel.textContent !== 'Live Score') elLabel.textContent = 'Live Score';
         const buyScore = calculateScore('BUY');
         const sellScore = calculateScore('SELL');
         const elScore = document.getElementById('tt-live-score');
         if (elScore) elScore.textContent = `B: ${buyScore} / S: ${sellScore}`;
+      } else if (cfg.strategyMode === 'seqMaster') {
+        if (elLabel && elLabel.textContent !== 'Sequence') elLabel.textContent = 'Sequence';
+        const elScore = document.getElementById('tt-live-score');
+        if (elScore) {
+          const seqStr = tickDirections.join('');
+          elScore.textContent = seqStr.slice(-10);
+        }
+      } else {
+        if (elLabel && elLabel.textContent !== 'Live Score') elLabel.textContent = 'Live Score';
       }
     }
   }
@@ -426,11 +452,11 @@
     speedHistory.push(absSpeed); if (speedHistory.length > SPEED_BUF) speedHistory.shift();
     calculatePercentiles(); lastTickProcessedAt = Date.now();
 
-    // ── Continuous Logging for Unleashed ──
-    if (cfg.strategyMode === 'unleashed') {
+    // ── Continuous Logging for Unleashed & Sequence Master ──
+    if (cfg.strategyMode === 'unleashed' || cfg.strategyMode === 'seqMaster') {
       const tickSnapshot = {
         type: 'TICK',
-        strategy: 'unleashed',
+        strategy: cfg.strategyMode,
         price: price,
         time: epoch,
         result: '-',
