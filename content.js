@@ -27,6 +27,7 @@
   let cfg = {
     tickSize: 0.1,
     strategyMode: 'hybrid',
+    seqMasterConfig: '',
     epsilon: 0.1,
     realTradeEnabled: false,
     realTimeoutMs: 40000,
@@ -60,7 +61,9 @@
 
   // ── State ─────────────────────────────────────────────────────────────────
   let ticks = [];
+  let tickDirections = [];
   let speedHistory = [];
+  let parsedSeqMasterConfig = null;
   let sHigh = 0, sLow = 0, speedMean = 0, speedStd = 0, bbWidth = 0, prevBbWidth = 0;
   let signals = [], sessionTradesAll = [];
   let tickSeq = 0, lastSignalTickIndex = -999, upStreak = 0, downStreak = 0;
@@ -105,7 +108,11 @@
           <button id="tt-clear-logs" style="flex:1;background:#3d1a1a;color:#e04040;font-size:10px;border:1px solid #7a3a10;border-radius:4px;cursor:pointer;">Clear Logs</button>
         </div>
         <div id="tt-config">
-          <div class="tt-config-row"><label>Mode</label><select id="tt-cfg-strategy-mode"><option value="unleashed">🔥 Unleashed High-Activity</option><option value="trendIgnition">🚀 Trend Ignition</option><option value="reversalIgnition">🔄 Reversal Ignition</option><option value="ignitionSuite">Full Ignition Suite</option><option value="ignition">Ignition</option><option value="structural3">Structural 3</option><option value="structural2">Structural 2</option><option value="structural">Structural</option><option value="hybrid">Hybrid</option><option value="momentum">Momentum</option><option value="reversal">Reversal</option></select></div>
+          <div class="tt-config-row"><label>Mode</label><select id="tt-cfg-strategy-mode"><option value="unleashed">🔥 Unleashed High-Activity</option><option value="seqMaster">🧬 Sequence Master</option><option value="trendIgnition">🚀 Trend Ignition</option><option value="reversalIgnition">🔄 Reversal Ignition</option><option value="ignitionSuite">Full Ignition Suite</option><option value="ignition">Ignition</option><option value="structural3">Structural 3</option><option value="structural2">Structural 2</option><option value="structural">Structural</option><option value="hybrid">Hybrid</option><option value="momentum">Momentum</option><option value="reversal">Reversal</option></select></div>
+          <div id="tt-cfg-seq-master-container" style="display:none; flex-direction:column; gap:4px; margin-top:4px;">
+            <label style="font-size:10px; color:#7a8499;">DNA JSON Config</label>
+            <textarea id="tt-cfg-seq-master-json" placeholder='Paste JSON DNA here...' style="width:100%; height:120px; background:#1e2338; border:1px solid #3a4260; color:#e0e6f0; border-radius:4px; font-size:10px; font-family:monospace; resize:vertical;"></textarea>
+          </div>
           <div class="tt-config-row"><label>Trend EMA Period</label><input type="number" id="tt-cfg-trend-ema" min="2" max="100" step="1" value="15"></div>
           <div class="tt-config-row"><label>ADX Period</label><input type="number" id="tt-cfg-adx-period" min="2" max="100" step="1" value="14"></div>
           <div class="tt-config-row"><label>ADX Range</label><div style="display:flex;gap:4px;"><input type="number" id="tt-cfg-adx-min" min="0" max="100" step="1" style="width:50px;" value="25"><input type="number" id="tt-cfg-adx-max" min="0" max="100" step="1" style="width:50px;" value="60"></div></div>
@@ -158,7 +165,17 @@
     document.getElementById('tt-min-btn').addEventListener('click', () => el.classList.toggle('tt-minimized'));
     document.getElementById('tt-close-btn').addEventListener('click', () => { manualClose = true; if (reconnectTimer) clearTimeout(reconnectTimer); if (ws) ws.close(); el.remove(); });
     document.getElementById('tt-config-toggle').addEventListener('click', () => document.getElementById('tt-config').classList.toggle('tt-open'));
-    document.getElementById('tt-cfg-strategy-mode').addEventListener('change', function () { cfg.strategyMode = this.value; saveCfg(); });
+    document.getElementById('tt-cfg-strategy-mode').addEventListener('change', function () {
+      cfg.strategyMode = this.value;
+      updateSeqMasterUIVisibility();
+      saveCfg();
+    });
+    const seqJsonEl = document.getElementById('tt-cfg-seq-master-json');
+    seqJsonEl.addEventListener('input', function() {
+      cfg.seqMasterConfig = this.value;
+      validateSeqMasterJSON(this.value);
+      saveCfg();
+    });
     document.getElementById('tt-cfg-trend-ema').addEventListener('change', function () { const v = parseInt(this.value); cfg.trendEmaPeriod = isNaN(v) ? 10 : v; saveCfg(); });
     document.getElementById('tt-cfg-adx-period').addEventListener('change', function () { const v = parseInt(this.value); cfg.adxPeriod = isNaN(v) ? 14 : v; saveCfg(); });
     document.getElementById('tt-cfg-adx-min').addEventListener('change', function () { const v = parseFloat(this.value); cfg.adxMin = isNaN(v) ? undefined : v; saveCfg(); });
@@ -398,6 +415,12 @@
     const accel5 = prevTick ? Math.round((speed5 - (prevTick.speed5 || 0)) * 100000) / 100000 : 0;
 
     if (delta > 0) { upStreak++; downStreak = 0; } else if (delta < 0) { downStreak++; upStreak = 0; } else { upStreak = 0; downStreak = 0; }
+
+    // Update tick directions
+    const dirChar = delta > 0 ? 'U' : (delta < 0 ? 'D' : 'Z');
+    tickDirections.push(dirChar);
+    if (tickDirections.length > 20) tickDirections.shift();
+
     const state = { epoch, price, direction, deltaSteps, deltaTime, speed, absSpeed, speedTrend, upStreak, downStreak, lastDigit, deltaChange: deltaChangeVal, receivedAt: now, accel, intensity, preSpeed, acceleration, trendEma, ema10: trendEma, adx, rsi, speed5, accel5 };
     ticks.push(state); if (ticks.length > TICK_BUF) ticks.shift();
     speedHistory.push(absSpeed); if (speedHistory.length > SPEED_BUF) speedHistory.shift();
@@ -471,6 +494,49 @@
         sig.ticksAfter.push(price); // Real trades are resolved by the Flyout Observer
       }
     });
+  }
+
+  // ── Sequence Master Logic ─────────────────────────────────────────────────
+  function checkSequenceMaster(currentPrice, indicators, currentSeq, config) {
+    if (!config || !config.patterns || !Array.isArray(config.patterns)) return null;
+
+    // Magnet Filter (Absolute Gate)
+    if (config.magnets && Array.isArray(config.magnets)) {
+      const deadzone = config.deadzone || 0;
+      for (let i = 0; i < config.magnets.length; i++) {
+        if (Math.abs(currentPrice - config.magnets[i]) <= deadzone) {
+          return null;
+        }
+      }
+    }
+
+    for (const pattern of config.patterns) {
+      if (currentSeq.endsWith(pattern.sequence)) {
+        // Validate Indicators with Defaults
+        const rsiMin = pattern.rsiMin ?? 0;
+        const rsiMax = pattern.rsiMax ?? 100;
+        const bbwMin = pattern.bbwMin ?? 0;
+        const bbwMax = pattern.bbwMax ?? Infinity;
+        const intensityMin = pattern.intensityMin ?? 0;
+        const intensityMax = pattern.intensityMax ?? Infinity;
+        const adxMin = pattern.adxMin ?? 0;
+        const adxMax = pattern.adxMax ?? 100;
+
+        const match =
+          indicators.rsi >= rsiMin && indicators.rsi <= rsiMax &&
+          indicators.bbw >= bbwMin && indicators.bbw <= bbwMax &&
+          indicators.intensity >= intensityMin && indicators.intensity <= intensityMax &&
+          indicators.adx >= adxMin && indicators.adx <= adxMax;
+
+        if (match) {
+          return {
+            type: pattern.action === 'CALL' ? 'BUY' : (pattern.action === 'PUT' ? 'SELL' : null),
+            name: pattern.name
+          };
+        }
+      }
+    }
+    return null;
   }
 
   // ── Scoring Logic ─────────────────────────────────────────────────────────
@@ -618,7 +684,26 @@
     let res = null;
 
     // Evaluation Logic
-    if (mode === 'unleashed') {
+    if (mode === 'seqMaster') {
+      if (parsedSeqMasterConfig) {
+        const indicators = {
+          rsi: currentRSI,
+          adx: currentADX,
+          bbw: bbWidth,
+          intensity: t0.intensity
+        };
+        const currentSeq = tickDirections.join('');
+        const sequenceMatch = checkSequenceMaster(t0.price, indicators, currentSeq, parsedSeqMasterConfig);
+        if (sequenceMatch && sequenceMatch.type) {
+          res = {
+            type: sequenceMatch.type,
+            conf: 100,
+            triggerDesc: `DNA:${sequenceMatch.name}`
+          };
+        }
+      }
+    }
+    else if (mode === 'unleashed') {
       const currentAccel = (t0.accel5 || 0);
       const buyScore = calculateScore('BUY');
       const sellScore = calculateScore('SELL');
@@ -865,11 +950,34 @@
   }
   function safeStorage(op, key, val) { try { if (op === 'get') return JSON.parse(localStorage.getItem(key)); if (op === 'set') localStorage.setItem(key, JSON.stringify(val)); } catch (_) { } return null; }
   function saveCfg() { safeStorage('set', 'tt-cfg', cfg); }
-  function loadCfg() { const stored = safeStorage('get', 'tt-cfg'); return Object.assign({ strategyMode: 'hybrid', epsilon: 0.1, maxEpsilon: undefined, epsBuyMin: undefined, epsBuyMax: undefined, epsSellMin: undefined, epsSellMax: undefined, minIntensity: undefined, maxIntensity: undefined, minStreak: undefined, maxStreak: 4, accelBuyMin: undefined, accelBuyMax: undefined, accelSellMin: undefined, accelSellMax: undefined, realTradeEnabled: false, realTimeoutMs: 40000, realCooldownMs: 5000, postTradeCooldownTicks: 5, postTradeCooldownMs: 5000, debugSignals: true, adxMin: undefined, adxMax: undefined, adxPeriod: 14, rsiPeriod: 14, rsiBuyMin: undefined, rsiBuyMax: undefined, rsiSellMin: undefined, rsiSellMax: undefined, trendEmaPeriod: 10, minBBWidth: undefined, maxBBWidth: undefined, scoreThreshold: undefined }, stored || {}); }
+  function loadCfg() { const stored = safeStorage('get', 'tt-cfg'); return Object.assign({ strategyMode: 'hybrid', epsilon: 0.1, maxEpsilon: undefined, epsBuyMin: undefined, epsBuyMax: undefined, epsSellMin: undefined, epsSellMax: undefined, minIntensity: undefined, maxIntensity: undefined, minStreak: undefined, maxStreak: 4, accelBuyMin: undefined, accelBuyMax: undefined, accelSellMin: undefined, accelSellMax: undefined, realTradeEnabled: false, realTimeoutMs: 40000, realCooldownMs: 5000, postTradeCooldownTicks: 5, postTradeCooldownMs: 5000, debugSignals: true, adxMin: undefined, adxMax: undefined, adxPeriod: 14, rsiPeriod: 14, rsiBuyMin: undefined, rsiBuyMax: undefined, rsiSellMin: undefined, rsiSellMax: undefined, trendEmaPeriod: 10, minBBWidth: undefined, maxBBWidth: undefined, scoreThreshold: undefined, seqMasterConfig: '' }, stored || {}); }
+  function updateSeqMasterUIVisibility() {
+    const container = document.getElementById('tt-cfg-seq-master-container');
+    if (container) container.style.display = (cfg.strategyMode === 'seqMaster' ? 'flex' : 'none');
+  }
+
+  function validateSeqMasterJSON(raw) {
+    const el = document.getElementById('tt-cfg-seq-master-json');
+    if (!el) return;
+    if (!raw.trim()) {
+      el.style.borderColor = '#3a4260';
+      parsedSeqMasterConfig = null;
+      return;
+    }
+    try {
+      parsedSeqMasterConfig = JSON.parse(raw);
+      el.style.borderColor = '#3ecf60';
+    } catch (e) {
+      el.style.borderColor = '#e04040';
+      parsedSeqMasterConfig = null;
+    }
+  }
+
   function applyConfigToUI() {
     const dbg = document.getElementById('tt-cfg-debug'),
           re = document.getElementById('tt-cfg-real-enabled'),
           mode = document.getElementById('tt-cfg-strategy-mode'),
+          seqJson = document.getElementById('tt-cfg-seq-master-json'),
           epsBuyMin = document.getElementById('tt-cfg-eps-buy-min'),
           epsBuyMax = document.getElementById('tt-cfg-eps-buy-max'),
           epsSellMin = document.getElementById('tt-cfg-eps-sell-min'),
@@ -896,6 +1004,11 @@
     if (dbg) dbg.checked = cfg.debugSignals;
     if (re) re.checked = !!cfg.realTradeEnabled;
     if (mode) mode.value = cfg.strategyMode;
+    if (seqJson) {
+      seqJson.value = cfg.seqMasterConfig || '';
+      validateSeqMasterJSON(seqJson.value);
+    }
+    updateSeqMasterUIVisibility();
     if (epsBuyMin) epsBuyMin.value = cfg.epsBuyMin !== undefined ? cfg.epsBuyMin : '';
     if (epsBuyMax) epsBuyMax.value = cfg.epsBuyMax !== undefined ? cfg.epsBuyMax : '';
     if (epsSellMin) epsSellMin.value = cfg.epsSellMin !== undefined ? cfg.epsSellMin : '';
